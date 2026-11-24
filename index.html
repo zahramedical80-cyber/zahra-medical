@@ -25,13 +25,8 @@
 </div></header>
 <main id="home">
 <section class="hero"><div class="container hero-grid"><div class="hero-copy"><h1>پێداویستییە پزیشکییەکانت لە یەک شوێندا</h1><p>کوالێتی، متمانە و خزمەتگوزارییەکی باش بۆ دامەزراوە تەندروستییەکان و هەموو کڕیاران.</p><div class="hero-actions"><a class="btn btn-primary" href="#products">بینینی بەرهەمەکان</a><a class="btn btn-light" href="#categories">بەشەکان ببینە</a></div></div><div class="hero-visual" aria-hidden="true"></div></div></section>
-<section class="container section" id="categories"><div class="section-heading"><h2>بەشەکانی فرۆشگا</h2><p>ئەو جۆرە پێداویستییە هەڵبژێرە کە پێویستتە.</p></div><div class="category-grid">
-<button class="category-card" data-category="ئامێرە پزیشکییەکان"><span>🩺</span><b>ئامێرە پزیشکییەکان</b><small>ئامێر و کەرەستەی پشکنین</small></button>
-<button class="category-card" data-category="کەرەستەی نەشتەرگەری"><span>🧤</span><b>کەرەستەی نەشتەرگەری</b><small>کەرەستەی پاراستن و نەشتەرگەری</small></button>
-<button class="category-card" data-category="تاقیگە و پشکنین"><span>🧪</span><b>تاقیگە و پشکنین</b><small>پێداویستییەکانی تاقیگە</small></button>
-<button class="category-card" data-category="پێداویستییە گشتییەکان"><span>🩹</span><b>پێداویستییە گشتییەکان</b><small>کەرەستەی ڕۆژانەی تەندروستی</small></button>
-</div></section>
-<section class="container section" id="products"><div class="section-heading"><h2>بەرهەمەکان</h2><div class="search-wrap"><input id="search" type="search" placeholder="گەڕان بە ناوی بەرهەم..."><span>⌕</span></div></div><div class="filter-row"><button class="filter-chip active" data-filter="all">هەمووی</button><button class="filter-chip" data-filter="ئامێرە پزیشکییەکان">ئامێری پزیشکی</button><button class="filter-chip" data-filter="کەرەستەی نەشتەرگەری">نەشتەرگەری</button><button class="filter-chip" data-filter="تاقیگە و پشکنین">تاقیگە</button><button class="filter-chip" data-filter="پێداویستییە گشتییەکان">گشتی</button></div><div id="product-grid" class="product-grid"></div></section>
+<section class="container section" id="categories"><div class="section-heading"><h2>بەشەکانی فرۆشگا</h2><p>ئەو جۆرە پێداویستییە هەڵبژێرە کە پێویستتە.</p></div><div class="category-grid"></div></section>
+<section class="container section" id="products"><div class="section-heading"><h2>بەرهەمەکان</h2><div class="search-wrap"><input id="search" type="search" placeholder="گەڕان بە ناوی بەرهەم..."><span>⌕</span></div></div><div class="filter-row"></div><div id="product-grid" class="product-grid"></div></section>
 <section class="contact-band" id="contact"><div class="container contact-inner"><div><h2>پێویستت بە ڕاوێژ یان زانیارییە؟</h2><p>بۆ نرخ و بەردەستبوونی کاڵاکان پەیوەندیمان پێوە بکە.</p></div><a class="btn btn-primary" href="mailto:info@zahramedical.example">پەیوەندیمان پێوە بکە</a></div></section>
 </main>
 <footer class="footer"><div class="container footer-inner"><div class="brand"><span class="brand-mark">✚</span><span>ZAHRA MEDICAL</span></div><p>© 2026 Zahra Medical. هەموو مافەکان پارێزراون.</p></div></footer>
@@ -40,5 +35,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4"></script>
 <script src="supabase-client.js"></script>
 <script src="app.js"></script>
+<script src="catalog.js"></script>
 <script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js'))</script>
 </body></html>
