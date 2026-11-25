@@ -2,11 +2,14 @@ const ADMIN_EMAIL = 'abdurahmanemran001@gmail.com'; // real protection is the da
 const money = n => new Intl.NumberFormat('en-US').format(Math.round(Number(n) || 0)) + ' د.ع';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = s => Number(String(s).replace(/[٠-٩]/g, d => d.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, d => d.charCodeAt(0) - 0x6f0).replace(/[,\s]/g, ''));
 const STATUS = { pending: 'چاوەڕێ', approved: 'ڕێپێدراو', rejected: 'ڕەتکراوە' };
+const ST = { new: 'نوێ', confirmed: 'پشتڕاستکراوە', delivered: 'دانراو', cancelled: 'هەڵوەشاوە' };
 const TABS = [['orders', 'داواکارییەکان'], ['customers', 'کڕیاران'], ['products', 'بەرهەمەکان'], ['cats', 'بەشەکان'], ['sales', 'فرۆشتن و قازانج']];
 const fieldCss = 'padding:10px;border:1px solid #dce8eb;border-radius:9px;font-size:16px;width:100%';
 const card = 'border:1px solid #e1ebed;border-radius:12px;padding:12px;margin-bottom:10px';
-let cats = [], prods = [], costs = {}, orders = [], people = [], orderFilter = null, tab = 'orders';
+let cats = [], prods = [], costs = {}, orders = [], people = [], payments = [], orderFilter = null, tab = 'orders', ordView = 'active';
+const openOrders = new Set();
 
 // ---------- Login ----------
 function showLogin(msg) {
@@ -49,7 +52,7 @@ function prepare() {
   wrap.querySelector('.warning')?.remove();
   const stats = wrap.querySelector('.stats'), grid = wrap.querySelector('.admin-grid'), op = wrap.querySelector('.orders-panel');
   stats.dataset.tab = 'sales'; grid.dataset.tab = 'products'; op.dataset.tab = 'orders';
-  op.innerHTML = '<h2>داواکارییەکان</h2><div id="order-filter"></div><div id="admin-orders"></div>';
+  op.innerHTML = '<h2>داواکارییەکان</h2><div id="ord-tabs" style="display:flex;gap:8px;margin-bottom:12px"></div><div id="order-filter"></div><div id="admin-orders"></div>';
   op.style.marginTop = '0';
   wrap.insertAdjacentHTML('afterbegin',
     `<div id="tabs" style="display:flex;gap:8px;overflow-x:auto;margin-bottom:18px;padding-bottom:4px">${TABS.map(([k, l]) => `<button class="btn btn-light" data-tab-btn="${k}" style="flex:none">${l}</button>`).join('')}</div>`);
@@ -108,16 +111,17 @@ async function uploadImage(file) {
 
 // ---------- Data + rendering ----------
 async function render() {
-  const [pr, pc, or, cu, ca] = await Promise.all([
+  const [pr, pc, or, cu, ca, pm] = await Promise.all([
     sb.from('products').select('*').order('created_at'),
     sb.from('product_costs').select('*'),
-    sb.from('orders').select('*, order_items(name, price, qty, cost)').order('created_at', { ascending: false }),
+    sb.from('orders').select('*, order_items(id, name, price, qty, cost)').order('created_at', { ascending: false }),
     sb.from('profiles').select('*').order('created_at', { ascending: false }),
-    sb.from('categories').select('*').order('sort').order('name')
+    sb.from('categories').select('*').order('sort').order('name'),
+    sb.from('payments').select('*').order('created_at', { ascending: false })
   ]);
-  const err = pr.error || pc.error || or.error || cu.error || ca.error;
+  const err = pr.error || pc.error || or.error || cu.error || ca.error || pm.error;
   if (err) { console.error(err); alert('هەڵە: ' + err.message); return; }
-  prods = pr.data; cats = ca.data; orders = or.data;
+  prods = pr.data; cats = ca.data; orders = or.data; payments = pm.data;
   costs = Object.fromEntries(pc.data.map(c => [c.product_id, c.cost]));
   people = cu.data.filter(x => (x.email || '').toLowerCase() !== ADMIN_EMAIL)
     .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1));
@@ -125,21 +129,26 @@ async function render() {
 }
 
 function renderTabs() {
-  const pending = people.filter(x => x.status === 'pending').length;
+  const badge = { customers: people.filter(x => x.status === 'pending').length, orders: orders.filter(o => o.status === 'new').length };
   document.querySelectorAll('[data-tab-btn]').forEach(b => {
-    const base = TABS.find(t => t[0] === b.dataset.tabBtn)[1];
-    b.textContent = b.dataset.tabBtn === 'customers' && pending ? `${base} (${pending})` : base;
+    const k = b.dataset.tabBtn, base = TABS.find(t => t[0] === k)[1];
+    b.textContent = badge[k] ? `${base} (${badge[k]})` : base;
   });
 }
+
+const debtOf = id => orders.filter(o => o.user_id === id && o.status === 'delivered').reduce((s, o) => s + Number(o.total || 0), 0)
+  - payments.filter(p => p.user_id === id).reduce((s, p) => s + Number(p.amount || 0), 0);
 
 function renderCustomers() {
   const btn = (id, st, label) => `<button class="del-btn" style="background:${st === 'approved' ? '#e7f7ee;color:#1b7f4b' : '#fff0f0;color:#b44'}" data-user="${id}" data-status="${st}">${label}</button>`;
   $('admin-signups').innerHTML = people.map(x => {
-    const mine = orders.filter(o => o.user_id === x.id && o.status !== 'cancelled');
+    const mine = orders.filter(o => o.user_id === x.id && o.status !== 'cancelled'), debt = debtOf(x.id);
     return `<div style="${card}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(x.full_name)}</b><span>${STATUS[x.status] || esc(x.status)}</span></div>
       <div class="muted">${esc(x.email)}</div><div class="muted">${esc(x.address)}</div>
       <div style="margin:6px 0">${mine.length} داواکاری · ${money(mine.reduce((s, o) => s + Number(o.total || 0), 0))}</div>
+      <div style="margin:6px 0;font-weight:800;color:${debt > 0 ? '#b44' : '#1b7f4b'}">قەرد: ${money(debt)}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${x.status === 'pending' ? btn(x.id, 'approved', 'ڕێپێدان') + btn(x.id, 'rejected', 'ڕەتکردنەوە') : x.status === 'approved' ? btn(x.id, 'rejected', 'ڕاگرتن') : btn(x.id, 'approved', 'ڕێپێدان')}
+      <button class="del-btn" style="background:#e7f7ee;color:#1b7f4b" data-pay="${x.id}">پارە وەرگیرا</button>
       <button class="del-btn" style="background:#eef6f8;color:#087c9c" data-cust-orders="${x.id}">داواکارییەکانی</button></div></div>`;
   }).join('') || '<p class="muted">هێشتا کەس تۆمار نەبووە.</p>';
 }
@@ -160,19 +169,29 @@ function renderCats() {
     `<div style="display:flex;gap:8px;margin-bottom:8px"><input data-cat-name="${c.id}" value="${esc(c.name)}" style="${fieldCss}"><button class="btn btn-primary" data-cat-save="${c.id}" style="flex:none">پاشەکەوت</button></div>`).join('');
 }
 
+// Orders: active list (new / confirmed) vs history (دانراو / cancelled); tap a card to open it, edit quantities, mark as دانراو
 function renderOrders() {
   const who = orderFilter && people.find(p => p.id === orderFilter);
   $('order-filter').innerHTML = who
     ? `<div style="${card};display:flex;justify-content:space-between;align-items:center"><b>داواکارییەکانی ${esc(who.full_name)}</b><button class="del-btn" style="background:#eef6f8;color:#087c9c" data-clear-filter>هەمووی</button></div>` : '';
-  const list = orders.filter(o => !orderFilter || o.user_id === orderFilter);
-  $('admin-orders').innerHTML = list.map(o => {
-    const items = (o.order_items || []).map(i => `${esc(i.name)} × ${i.qty}`).join('، ');
-    const loc = o.lat != null ? `<a href="https://www.google.com/maps?q=${o.lat},${o.lng}" target="_blank" rel="noopener">شوێنەکەی ببینە</a>` : '';
-    return `<div style="${card}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(o.customer)}</b><span class="muted">${new Date(o.created_at).toLocaleString('ku-IQ')}</span></div>
-      <div class="muted">${esc(o.code)} · ${esc(o.phone)}</div><div class="muted">${esc(o.address)}</div>
-      <div style="margin:6px 0">${items}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>${money(o.total)}</b>${loc}</div></div>`;
-  }).join('') || '<p class="muted">هێشتا داواکاری تۆمار نەکراوە.</p>';
+  const mine = orders.filter(o => !orderFilter || o.user_id === orderFilter);
+  const hist = o => o.status === 'delivered' || o.status === 'cancelled';
+  const act = mine.filter(o => !hist(o)), his = mine.filter(hist);
+  $('ord-tabs').innerHTML = [['active', `چالاک (${act.length})`], ['history', `مێژوو (${his.length})`]]
+    .map(([k, l]) => `<button class="btn ${ordView === k ? 'btn-primary' : 'btn-light'}" data-ord-view="${k}">${l}</button>`).join('');
+  const small = 'padding:8px 12px;border-radius:9px;border:0;cursor:pointer;font-weight:700';
+  $('admin-orders').innerHTML = (ordView === 'active' ? act : his).map(o => {
+    const items = o.order_items || [], open = openOrders.has(o.id);
+    const head = `<div data-toggle-order="${o.id}" style="display:flex;justify-content:space-between;gap:8px;cursor:pointer"><div><b>${esc(o.customer)}</b><div class="muted">${new Date(o.created_at).toLocaleString('ku-IQ')} · ${items.length} بەرهەم</div></div><div style="text-align:left"><b>${money(o.total)}</b><div class="muted">${ST[o.status] || esc(o.status)} ${open ? '▴' : '▾'}</div></div></div>`;
+    if (!open) return `<div style="${card}">${head}</div>`;
+    const editable = o.status !== 'cancelled';
+    const rows = items.map(i => `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid #eef3f4"><span style="flex:1">${esc(i.name)}<br><small class="muted">${money(i.price)} × ${i.qty} = ${money(i.price * i.qty)}</small></span>${editable ? `<span style="display:flex;align-items:center;gap:6px"><button style="${small};background:#eef6f8" data-item="${i.id}" data-q="${i.qty - 1}">−</button><b>${i.qty}</b><button style="${small};background:#eef6f8" data-item="${i.id}" data-q="${i.qty + 1}">+</button><button style="${small};background:#fff0f0;color:#b44" data-item="${i.id}" data-q="0">✕</button></span>` : ''}</div>`).join('');
+    const loc = o.lat != null ? `<a href="https://www.google.com/maps?q=${o.lat},${o.lng}" target="_blank" rel="noopener">شوێنەکەی ببینە</a>` : '<span class="muted">بێ شوێن</span>';
+    const acts = o.status === 'new' || o.status === 'confirmed'
+      ? `<button class="btn btn-primary" data-ostatus="delivered" data-order="${o.id}">دانراو</button><button class="btn btn-light" data-ostatus="cancelled" data-order="${o.id}">هەڵوەشاندنەوە</button>`
+      : `<button class="btn btn-light" data-ostatus="new" data-order="${o.id}">گەڕاندنەوە بۆ چالاک</button>`;
+    return `<div style="${card};border-color:#087c9c">${head}<div class="muted" style="margin-top:8px">${esc(o.code)} · ${esc(o.phone)}</div><div class="muted">${esc(o.address)}</div><div style="margin:6px 0">${loc}</div>${rows}<div style="display:flex;justify-content:space-between;font-weight:800;padding:10px 0"><span>کۆی گشتی</span><span>${money(o.total)}</span></div><div style="display:flex;gap:8px;flex-wrap:wrap">${acts}</div></div>`;
+  }).join('') || `<p class="muted">${ordView === 'active' ? 'داواکارییەکی چالاک نییە.' : 'مێژوو بەتاڵە.'}</p>`;
 }
 
 function renderSales() {
@@ -221,6 +240,30 @@ document.addEventListener('click', async e => {
   const fail = error => { if (error) { alert('هەڵە: ' + error.message); return true; } };
   const tb = e.target.closest('[data-tab-btn]');
   if (tb) { showTab(tb.dataset.tabBtn); return; }
+  const ov = e.target.closest('[data-ord-view]');
+  if (ov) { ordView = ov.dataset.ordView; renderOrders(); return; }
+  const tg = e.target.closest('[data-toggle-order]');
+  if (tg) { const id = tg.dataset.toggleOrder; openOrders.has(id) ? openOrders.delete(id) : openOrders.add(id); renderOrders(); return; }
+  const it = e.target.closest('[data-item]');
+  if (it) {
+    if (Number(it.dataset.q) <= 0 && !confirm('ئەم بەرهەمە لە داواکارییەکە لاببرێت؟')) return;
+    if (!fail((await sb.rpc('admin_set_item_qty', { p_item: it.dataset.item, p_qty: Number(it.dataset.q) })).error)) render();
+    return;
+  }
+  const os = e.target.closest('[data-ostatus]');
+  if (os) {
+    if (os.dataset.ostatus === 'cancelled' && !confirm('داواکارییەکە هەڵبوەشێنرێتەوە؟')) return;
+    if (!fail((await sb.rpc('admin_set_order_status', { p_order: os.dataset.order, p_status: os.dataset.ostatus })).error)) render();
+    return;
+  }
+  const pay = e.target.closest('[data-pay]');
+  if (pay) {
+    const a = num(prompt('بړی پارەکە (د.ع):') || '');
+    if (!(a > 0)) return;
+    const note = prompt('تێبینی (ئارەزوومەندانە):') || null;
+    if (!fail((await sb.rpc('admin_add_payment', { p_user: pay.dataset.pay, p_amount: a, p_note: note })).error)) render();
+    return;
+  }
   const del = e.target.closest('[data-del]');
   if (del && confirm('دڵنیایت لە سڕینەوەی ئەم بەرهەمە؟')) {
     if (!fail((await sb.from('products').delete().eq('id', del.dataset.del)).error)) render();
@@ -247,7 +290,7 @@ document.addEventListener('click', async e => {
   const u = e.target.closest('[data-user]');
   if (u && !fail((await sb.from('profiles').update({ status: u.dataset.status }).eq('id', u.dataset.user)).error)) render();
   const co = e.target.closest('[data-cust-orders]');
-  if (co) { orderFilter = co.dataset.custOrders; renderOrders(); showTab('orders'); }
+  if (co) { orderFilter = co.dataset.custOrders; ordView = 'active'; renderOrders(); showTab('orders'); }
   if (e.target.closest('[data-clear-filter]')) { orderFilter = null; renderOrders(); }
 });
 
