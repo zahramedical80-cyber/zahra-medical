@@ -7,6 +7,8 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ---- Phone layout: 4 categories per row + product density toggle (2 or 4 per row) ----
 (function () {
   const css = `
+#product-form label:has([name=stock]){display:none}
+.admin-grid table th:nth-child(4),#admin-products td:nth-child(4){display:none}
 .view-toggle{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:0 0 10px;font-size:13px;color:var(--muted)}
 .view-toggle button{width:38px;height:36px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--muted);font-weight:800;cursor:pointer}
 .view-toggle button.active{background:var(--ink);border-color:var(--ink);color:#fff}
