@@ -99,17 +99,35 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
+/* ---------- Location: asked early (first add / cart open), cached, so sending is instant ---------- */
+let lastPos = null, asked = false;
+function askLocation() {
+  const grab = opts => new Promise((ok, no) => navigator.geolocation.getCurrentPosition(p => {
+    lastPos = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
+    ok(lastPos);
+  }, no, opts));
+  if (!navigator.geolocation) return Promise.reject(new Error('unsupported'));
+  // fast first (cached / network location), precise GPS only if that fails
+  return grab({ enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 })
+    .catch(err => { if (err && err.code === 1) throw err; return grab({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }); });
+}
+document.addEventListener('click', e => {
+  if (!asked && e.target.closest('[data-add],#cart-open')) { asked = true; askLocation().catch(() => {}); }
+});
+
 /* ---------- Cart: thumbnails + one-tap checkout (name/address from the account, location attached) ---------- */
 let checkout = document.getElementById('checkout-form');
 const fresh = checkout.cloneNode(false); // drops the old form listeners
 checkout.replaceWith(fresh);
 checkout = fresh;
-checkout.innerHTML = `<h3>ناردنی داواکاری</h3>
+const SEND = 'ناردنی داواکاری', NOTE = 'ناو و ناونیشانەکەت لە هەژمارەکەتەوە دەنێردرێت، و شوێنەکەت (Location) لەگەڵی دەنێردرێت.';
+checkout.innerHTML = `<h3>${SEND}</h3>
   <input type="hidden" name="customer"><input type="hidden" name="address">
   <p class="who"></p>
   <input name="phone" required inputmode="tel" autocomplete="tel" placeholder="ژمارەی مۆبایل (تەنها یەکجار دەنووسیت)">
-  <button class="btn btn-primary full" type="submit">ناردنی داواکاری</button>
-  <small id="loc-note">ناو و ناونیشانەکەت لە هەژمارەکەتەوە دەنێردرێت، و شوێنەکەت (Location) لەگەڵی دەنێردرێت. دەبێت Location چالاک بێت.</small>`;
+  <button class="btn btn-primary full" type="submit">${SEND}</button>
+  <button class="btn btn-light full" type="button" id="send-noloc" hidden>ناردن بەبێ شوێن</button>
+  <small id="loc-note">${NOTE}</small>`;
 try { checkout.phone.value = localStorage.getItem('zm-phone') || ''; } catch (e) {}
 
 const _renderCart = renderCart;
@@ -137,33 +155,43 @@ renderCart = function () {
   if (openId) { const p = products.find(x => x.id === openId), b = modal.querySelector('.zm-buy'); if (p && b) b.innerHTML = buy(p); }
 };
 
-checkout.addEventListener('submit', async e => {
-  e.preventDefault();
-  if (!cart.length) { toast('سەبەتەکەت بەتاڵە.'); return; }
-  const btn = checkout.querySelector('button[type=submit]'), note = document.getElementById('loc-note');
-  btn.disabled = true; note.style.color = '';
-  let pos;
-  try {
-    pos = await new Promise((ok, no) => navigator.geolocation
-      ? navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
-      : no(new Error('unsupported')));
-  } catch (err) {
-    note.style.color = '#c0392b';
-    note.textContent = 'بۆ ناردنی داواکاری دەبێت شوێنەکەت (Location) چالاک بێت. لە ڕێکخستنی مۆبایل یان وێبگەڕەکەت ڕێگەت پێبدە، پاشان دووبارە هەوڵ بدەرەوە.';
-    btn.disabled = false;
-    return;
-  }
+async function submitOrder(pos) {
+  const btn = checkout.querySelector('button[type=submit]'), note = document.getElementById('loc-note'), alt = document.getElementById('send-noloc');
+  btn.disabled = true; alt.hidden = true; btn.textContent = '...';
   const { data: code, error } = await sb.rpc('place_order', {
     p_customer: checkout.customer.value,
     p_phone: checkout.phone.value.trim(),
     p_address: checkout.address.value,
     p_items: cart.map(x => ({ id: x.id, qty: x.qty })),
-    p_lat: pos.coords.latitude,
-    p_lng: pos.coords.longitude
+    p_lat: pos ? pos.lat : null,
+    p_lng: pos ? pos.lng : null
   });
-  btn.disabled = false;
+  btn.disabled = false; btn.textContent = SEND;
   if (error) { toast(error.message || 'داواکارییەکە تۆمار نەکرا.'); console.error(error); return; }
   try { localStorage.setItem('zm-phone', checkout.phone.value.trim()); } catch (err) {}
+  note.style.color = ''; note.textContent = NOTE;
   cart = []; renderCart(); closeCart();
   toast('داواکارییەکەت ناردرا ✓ کۆد: ' + code);
+}
+
+checkout.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!cart.length) { toast('سەبەتەکەت بەتاڵە.'); return; }
+  const btn = checkout.querySelector('button[type=submit]'), note = document.getElementById('loc-note'), alt = document.getElementById('send-noloc');
+  alt.hidden = true; note.style.color = '';
+  let pos = lastPos && Date.now() - lastPos.t < 300000 ? lastPos : null; // already known => send instantly
+  if (!pos) {
+    btn.disabled = true; btn.textContent = '...'; note.textContent = 'شوێنەکەت دەدۆزرێتەوە...';
+    try { pos = await askLocation(); }
+    catch (err) {
+      note.style.color = '#c0392b';
+      note.textContent = err && err.code === 1
+        ? 'ڕێگەپێدانی Location داخراوە. لە ڕێکخستنی ماڵپەړ (ئایکۆنی قوفڵ لە تەنیشت ناونیشانی وێبگەڕەکەت، یان Settings ← Chrome/Safari ← Location) ڕێگەی پێبدە، پاشان دووبارە هەوڵ بدەرەوە. ئەگەر لە ناو Instagram، Facebook یان WhatsApp کردووتەوە، لە Chrome/Safari بیکەرەوە.'
+        : 'نەتوانرا شوێنەکەت بدۆزرێتەوە. GPS بکەرەوە و دووبارە هەوڵ بدەرەوە.';
+      btn.disabled = false; btn.textContent = 'دووبارە هەوڵبدەرەوە'; alt.hidden = false;
+      return;
+    }
+  }
+  submitOrder(pos);
 });
+document.getElementById('send-noloc').addEventListener('click', () => submitOrder(null));
