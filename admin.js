@@ -1,14 +1,14 @@
-const ADMIN_EMAIL = 'abdurahmanemran001@gmail.com'; // real protection is the database policies; this only drives the UI
+const ADMIN_EMAIL = 'abdurahmanemran001@gmail.com'; // the owner; admin rights themselves are checked by the database (is_admin)
 const money = n => new Intl.NumberFormat('en-US').format(Math.round(Number(n) || 0)) + ' د.ع';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = s => Number(String(s).replace(/[٠-٩]/g, d => d.charCodeAt(0) - 0x660).replace(/[۰-۹]/g, d => d.charCodeAt(0) - 0x6f0).replace(/[,\s]/g, ''));
 const STATUS = { pending: 'چاوەڕێ', approved: 'ڕێپێدراو', rejected: 'ڕەتکراوە' };
 const ST = { new: 'نوێ', confirmed: 'پشتڕاستکراوە', delivered: 'دانراو', cancelled: 'هەڵوەشاوە' };
-const TABS = [['orders', 'داواکارییەکان'], ['customers', 'کڕیاران'], ['products', 'بەرهەمەکان'], ['cats', 'بەشەکان'], ['sales', 'فرۆشتن و قازانج']];
+const TABS = [['orders', 'داواکارییەکان'], ['customers', 'کڕیاران'], ['products', 'بەرهەمەکان'], ['cats', 'بەشەکان'], ['sales', 'فرۆشتن و قازانج'], ['notify', 'نۆتیفیکەیشن'], ['admins', 'ئەدمین']];
 const fieldCss = 'padding:10px;border:1px solid #dce8eb;border-radius:9px;font-size:16px;width:100%';
 const card = 'border:1px solid #e1ebed;border-radius:12px;padding:12px;margin-bottom:10px';
-let cats = [], prods = [], costs = {}, orders = [], people = [], payments = [], orderFilter = null, tab = 'orders', ordView = 'active';
+let cats = [], prods = [], costs = {}, orders = [], people = [], payments = [], admins = [], notes = [], orderFilter = null, tab = 'orders', ordView = 'active';
 const openOrders = new Set();
 
 // ---------- Login ----------
@@ -35,7 +35,8 @@ function showLogin(msg) {
 async function start() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { showLogin(); return; }
-  if ((session.user.email || '').toLowerCase() !== ADMIN_EMAIL) {
+  const { data: ok } = await sb.rpc('is_admin');
+  if (!ok) {
     await sb.auth.signOut();
     showLogin('ئەم بەشە تەنها بۆ بەڕێوەبەرە.');
     return;
@@ -59,7 +60,16 @@ function prepare() {
   stats.insertAdjacentHTML('afterend',
     `<section class="panel" data-tab="customers" style="margin-bottom:18px"><h2>کڕیاران</h2><div id="admin-signups"></div></section>
      <section class="panel" data-tab="cats" style="margin-bottom:18px"><h2>بەشەکانی فرۆشگا</h2><div id="admin-cats"></div><div style="display:flex;gap:8px;margin-top:10px"><input id="new-cat" placeholder="بەشی نوێ" style="${fieldCss}"><button class="btn btn-light" data-cat-add style="flex:none">زیادکردن</button></div></section>
-     <section class="panel" data-tab="sales" style="margin-bottom:18px"><h2>فرۆشتن و قازانج</h2><div id="sales-cards"></div><h3>ڕۆژانە</h3><div class="table-wrap" id="sales-days"></div><h3>مانگانە</h3><div class="table-wrap" id="sales-months"></div><p class="muted">قازانج = نرخی فرۆشتن − نرخی کڕین. داواکارییە کۆنەکان نرخی کڕینیان تۆمار نەکراوە.</p></section>`);
+     <section class="panel" data-tab="sales" style="margin-bottom:18px"><h2>فرۆشتن و قازانج</h2><div id="sales-cards"></div><h3>ڕۆژانە</h3><div class="table-wrap" id="sales-days"></div><h3>مانگانە</h3><div class="table-wrap" id="sales-months"></div><p class="muted">قازانج = نرخی فرۆشتن − نرخی کڕین. داواکارییە کۆنەکان نرخی کڕینیان تۆمار نەکراوە.</p></section>
+     <section class="panel" data-tab="notify" style="margin-bottom:18px"><h2>نۆتیفیکەیشن و داشکاندن</h2>
+       <div style="display:grid;gap:10px"><input id="nt-title" maxlength="100" placeholder="سەردێړ (بۆ نموونە: داشکاندنی هەفتە)" style="${fieldCss}">
+       <textarea id="nt-body" rows="3" maxlength="500" placeholder="ناوەڕۆک" style="${fieldCss}"></textarea>
+       <input id="nt-disc" type="number" min="1" max="100" placeholder="ڕێژەی داشکاندن % (ئارەزوومەندانە)" style="${fieldCss}">
+       <select id="nt-prod" style="${fieldCss}"></select>
+       <button class="btn btn-primary" data-note-send>ناردن بۆ هەموو کڕیاران</button></div>
+       <h3>ناردراوەکان</h3><div id="admin-notes"></div></section>
+     <section class="panel" data-tab="admins" style="margin-bottom:18px"><h2>ئەدمینەکان</h2><p class="muted">ئەدمین دەتوانێت هەموو بەشەکانی بەڕێوەبردن ببینێت. ئەم کەسە دەبێت پێشتر لە ماڵپەڕەکە هەژمارێکی دروست کردبێت بە هەمان ئیمەیڵ.</p>
+       <div id="admin-admins"></div><div style="display:flex;gap:8px;margin-top:10px"><input id="new-admin" type="email" placeholder="ئیمەیڵی ئەدمینی نوێ" style="${fieldCss}"><button class="btn btn-light" data-admin-add style="flex:none">زیادکردن</button></div></section>`);
   const nav = document.querySelector('.admin-nav');
   if (nav && !$('admin-logout')) {
     nav.insertAdjacentHTML('beforeend', '<a href="#" id="admin-logout">دەرچوون</a>');
@@ -111,21 +121,24 @@ async function uploadImage(file) {
 
 // ---------- Data + rendering ----------
 async function render() {
-  const [pr, pc, or, cu, ca, pm] = await Promise.all([
+  const [pr, pc, or, cu, ca, pm, ad, an] = await Promise.all([
     sb.from('products').select('*').order('created_at'),
     sb.from('product_costs').select('*'),
     sb.from('orders').select('*, order_items(id, name, price, qty, cost)').order('created_at', { ascending: false }),
     sb.from('profiles').select('*').order('created_at', { ascending: false }),
     sb.from('categories').select('*').order('sort').order('name'),
-    sb.from('payments').select('*').order('created_at', { ascending: false })
+    sb.from('payments').select('*').order('created_at', { ascending: false }),
+    sb.from('admins').select('*').order('added_at'),
+    sb.from('announcements').select('*').order('created_at', { ascending: false }).limit(50)
   ]);
-  const err = pr.error || pc.error || or.error || cu.error || ca.error || pm.error;
+  const err = pr.error || pc.error || or.error || cu.error || ca.error || pm.error || ad.error || an.error;
   if (err) { console.error(err); alert('هەڵە: ' + err.message); return; }
-  prods = pr.data; cats = ca.data; orders = or.data; payments = pm.data;
+  prods = pr.data; cats = ca.data; orders = or.data; payments = pm.data; admins = ad.data; notes = an.data;
   costs = Object.fromEntries(pc.data.map(c => [c.product_id, c.cost]));
-  people = cu.data.filter(x => (x.email || '').toLowerCase() !== ADMIN_EMAIL)
+  const adminMails = new Set(admins.map(a => a.email));
+  people = cu.data.filter(x => !adminMails.has((x.email || '').toLowerCase()))
     .sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1));
-  renderTabs(); renderCustomers(); renderProducts(); renderCats(); renderOrders(); renderSales();
+  renderTabs(); renderCustomers(); renderProducts(); renderCats(); renderOrders(); renderSales(); renderNotes(); renderAdmins();
 }
 
 function renderTabs() {
@@ -167,6 +180,17 @@ function renderProducts() {
 function renderCats() {
   $('admin-cats').innerHTML = cats.map(c =>
     `<div style="display:flex;gap:8px;margin-bottom:8px"><input data-cat-name="${c.id}" value="${esc(c.name)}" style="${fieldCss}"><button class="btn btn-primary" data-cat-save="${c.id}" style="flex:none">پاشەکەوت</button></div>`).join('');
+}
+
+function renderNotes() {
+  const sel = $('nt-prod'), keep = sel.value;
+  sel.innerHTML = '<option value="">بێ بەرهەمی دیاریکراو</option>' + prods.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  sel.value = keep;
+  $('admin-notes').innerHTML = notes.map(n => `<div style="${card}"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(n.title)}${n.discount_percent ? ` · ${n.discount_percent}%` : ''}</b><button class="del-btn" data-note-del="${n.id}">سڕینەوە</button></div>${n.body ? `<div class="muted">${esc(n.body)}</div>` : ''}<small class="muted">${new Date(n.created_at).toLocaleString('ku-IQ')}</small></div>`).join('') || '<p class="muted">هێشتا هیچت نهاردووە.</p>';
+}
+
+function renderAdmins() {
+  $('admin-admins').innerHTML = admins.map(a => `<div style="${card};display:flex;justify-content:space-between;align-items:center;gap:8px"><span>${esc(a.email)}${a.email === ADMIN_EMAIL ? ' <small class="muted">(خاوەن)</small>' : ''}</span>${a.email === ADMIN_EMAIL ? '' : `<button class="del-btn" data-admin-del="${esc(a.email)}">لابردن</button>`}</div>`).join('');
 }
 
 // Orders: active list (new / confirmed) vs history (دانراو / cancelled); tap a card to open it, edit quantities, mark as دانراو
@@ -262,6 +286,29 @@ document.addEventListener('click', async e => {
     if (!(a > 0)) return;
     const note = prompt('تێبینی (ئارەزوومەندانە):') || null;
     if (!fail((await sb.rpc('admin_add_payment', { p_user: pay.dataset.pay, p_amount: a, p_note: note })).error)) render();
+    return;
+  }
+  if (e.target.closest('[data-note-send]')) {
+    const title = $('nt-title').value.trim();
+    if (!title) { alert('سەردێړ بنووسە.'); return; }
+    const disc = num($('nt-disc').value || '0');
+    const row = { title, body: $('nt-body').value.trim() || null, discount_percent: disc >= 1 && disc <= 100 ? Math.round(disc) : null, product_id: $('nt-prod').value || null };
+    if (!fail((await sb.from('announcements').insert(row)).error)) { $('nt-title').value = ''; $('nt-body').value = ''; $('nt-disc').value = ''; $('nt-prod').value = ''; render(); alert('ناردرا.'); }
+    return;
+  }
+  const nd = e.target.closest('[data-note-del]');
+  if (nd && confirm('ئەم نۆتیفیکەیشنە بسڕرێتەوە؟')) {
+    if (!fail((await sb.from('announcements').delete().eq('id', nd.dataset.noteDel)).error)) render();
+    return;
+  }
+  if (e.target.closest('[data-admin-add]')) {
+    const mail = $('new-admin').value.trim().toLowerCase();
+    if (mail && !fail((await sb.from('admins').insert({ email: mail })).error)) { $('new-admin').value = ''; render(); }
+    return;
+  }
+  const ad = e.target.closest('[data-admin-del]');
+  if (ad && confirm('ئەم ئەدمینە لاببرێت؟')) {
+    if (!fail((await sb.from('admins').delete().eq('email', ad.dataset.adminDel)).error)) render();
     return;
   }
   const del = e.target.closest('[data-del]');
